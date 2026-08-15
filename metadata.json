@@ -1,0 +1,6 @@
+{
+  "name": "Alice AI Workspace",
+  "description": "Giao diện trò chuyện tương tác với Alice Bot, tùy chỉnh thông số AI, Proxy URL & Models, lưu trữ và xuất nhập lịch sử hội thoại JSON.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
