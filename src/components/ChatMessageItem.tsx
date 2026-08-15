@@ -198,13 +198,13 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
                   <Markdown
                     remarkPlugins={[remarkGfm]}
                     components={{
-                      code({ node, inline, className, children, ...props }: any) {
+                      code({ node, className, children, ...props }: any) {
                         const match = /language-(\w+)/.exec(className || '');
                         const codeString = String(children).replace(/\n$/, '');
-                        return !inline ? (
+                        return match ? (
                           <div className="relative group/code my-3 rounded-2xl overflow-hidden border border-zinc-200 dark:border-zinc-800 bg-zinc-900 text-zinc-100">
                             <div className="flex justify-between items-center px-4 py-2 bg-zinc-800/80 text-xs font-mono text-zinc-400">
-                              <span>{match ? match[1] : 'code'}</span>
+                              <span>{match[1]}</span>
                               <button
                                 onClick={() => {
                                   navigator.clipboard.writeText(codeString);

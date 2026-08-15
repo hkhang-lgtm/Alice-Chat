@@ -31,6 +31,7 @@ export default function App() {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [pendingRegenerate, setPendingRegenerate] = useState(false);
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -49,7 +50,22 @@ export default function App() {
     }
   }, [activeSessionId]);
 
+  useEffect(() => {
+    if (pendingRegenerate) {
+      setPendingRegenerate(false);
+      handleSendMessage('', true);
+    }
+  }, [sessions]);
+
   // Current active session object
+  useEffect(() => {
+    if (sessions.length === 0) {
+      const fresh = createInitialSession();
+      setSessions([fresh]);
+      setActiveSessionId(fresh.id);
+    }
+  }, [sessions]);
+
   const activeSession =
     sessions.find((s) => s.id === activeSessionId) || sessions[0] || createInitialSession();
 
@@ -126,9 +142,7 @@ export default function App() {
     );
 
     // Trigger regeneration after editing user message
-    setTimeout(() => {
-      handleSendMessage('', true);
-    }, 100);
+    setPendingRegenerate(true);
   };
 
   // Send message to Alice
@@ -224,10 +238,43 @@ export default function App() {
       const decoder = new TextDecoder();
       let accumulatedText = '';
       let buffer = '';
+      let pendingText: string | null = null;
+      let rafId: number | null = null;
+
+      const flush = () => {
+        if (pendingText === null) return;
+        const textToApply = pendingText;
+        pendingText = null;
+        setSessions((prev) =>
+          prev.map((s) => {
+            if (s.id === updatedSession.id) {
+              return {
+                ...s,
+                messages: s.messages.map((m) =>
+                  m.id === assistantMsgId ? { ...m, content: textToApply } : m
+                ),
+              };
+            }
+            return s;
+          })
+        );
+        rafId = null;
+      };
+
+      const scheduleFlush = () => {
+        if (rafId !== null) return;
+        rafId = requestAnimationFrame(flush);
+      };
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          if (pendingText !== null) {
+            if (rafId !== null) cancelAnimationFrame(rafId);
+            flush();
+          }
+          break;
+        }
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n\n');
@@ -254,20 +301,8 @@ export default function App() {
 
           if (eventType === 'chunk' && eventData.text) {
             accumulatedText += eventData.text;
-            // Update assistant message content in real time
-            setSessions((prev) =>
-              prev.map((s) => {
-                if (s.id === updatedSession.id) {
-                  return {
-                    ...s,
-                    messages: s.messages.map((m) =>
-                      m.id === assistantMsgId ? { ...m, content: accumulatedText } : m
-                    ),
-                  };
-                }
-                return s;
-              })
-            );
+            pendingText = accumulatedText;
+            scheduleFlush();
           } else if (eventType === 'error') {
             accumulatedText += `\n\n> ⚠️ **Lỗi:** ${eventData.message || 'Không thể tạo câu trả lời.'}`;
             setSessions((prev) =>
@@ -335,9 +370,7 @@ export default function App() {
       })
     );
 
-    setTimeout(() => {
-      handleSendMessage('', true);
-    }, 100);
+    setPendingRegenerate(true);
   };
 
   // Stop current AI generation
