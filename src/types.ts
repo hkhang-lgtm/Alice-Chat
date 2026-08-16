@@ -1,10 +1,21 @@
 export type Role = 'user' | 'assistant' | 'system';
 
+export interface MessageAttachment {
+  id: string;
+  name: string;
+  type: string; // mimeType (e.g. image/jpeg, image/png, text/plain, etc.)
+  size: number;
+  dataUrl: string; // Base64 data URL
+  isImage?: boolean;
+  textContent?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: Role;
   content: string;
   timestamp: number;
+  attachments?: MessageAttachment[];
   error?: boolean;
   tokenCount?: number;
 }

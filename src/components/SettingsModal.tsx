@@ -17,9 +17,12 @@ import {
   HelpCircle,
   Volume2,
   Trash2,
+  Sun,
+  Moon,
+  Monitor,
 } from 'lucide-react';
 import { AISettings, TestConnectionResponse } from '../types';
-import { PRESET_MODELS, DEFAULT_ALICE_SYSTEM_PROMPT } from '../services/storage';
+import { PRESET_MODELS, DEFAULT_ALICE_SYSTEM_PROMPT, AppTheme } from '../services/storage';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -31,6 +34,8 @@ interface SettingsModalProps {
   onClearAllHistory: () => void;
   sessionCount: number;
   messageCount: number;
+  theme?: AppTheme;
+  onToggleTheme?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -43,6 +48,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onClearAllHistory,
   sessionCount,
   messageCount,
+  theme,
+  onToggleTheme,
 }) => {
   const [activeTab, setActiveTab] = useState<'api' | 'params' | 'data'>('api');
   const [formData, setFormData] = useState<AISettings>({ ...settings });
@@ -544,6 +551,40 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <span className="text-[10px] text-zinc-400 block mt-1">Lọc số lượng từ ứng viên tối đa (1 - 100)</span>
                 </div>
               </div>
+
+              {/* Theme Preference */}
+              {onToggleTheme && (
+                <div className="flex items-center justify-between p-4 rounded-2xl bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200/80 dark:border-zinc-800">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-xl bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-400">
+                      {theme === 'dark' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold">Chế độ giao diện (Dark / Light Theme)</div>
+                      <div className="text-[11px] text-zinc-500">
+                        Đang sử dụng: <span className="font-semibold">{theme === 'dark' ? 'Giao diện Tối (Dark)' : 'Giao diện Sáng (Light)'}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onToggleTheme}
+                    className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-zinc-200 dark:bg-zinc-700 hover:bg-zinc-300 dark:hover:bg-zinc-600 text-zinc-800 dark:text-zinc-100 text-xs font-semibold transition-colors"
+                  >
+                    {theme === 'dark' ? (
+                      <>
+                        <Sun className="w-3.5 h-3.5 text-amber-500" />
+                        <span>Đổi sang Sáng</span>
+                      </>
+                    ) : (
+                      <>
+                        <Moon className="w-3.5 h-3.5 text-indigo-500" />
+                        <span>Đổi sang Tối</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
 
               {/* Speech Toggle */}
               <div className="flex items-center justify-between p-4 rounded-2xl bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200/80 dark:border-zinc-800">

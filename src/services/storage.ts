@@ -184,6 +184,7 @@ export function importHistoryFromJSON(
           role: m.role === 'user' ? 'user' : 'assistant',
           content: typeof m.content === 'string' ? m.content : String(m.content || ''),
           timestamp: m.timestamp || Date.now(),
+          attachments: Array.isArray(m.attachments) ? m.attachments : undefined,
         })),
       }));
 
@@ -205,6 +206,33 @@ export function importHistoryFromJSON(
     };
   } catch (err: any) {
     return { success: false, message: `Lỗi đọc file JSON: ${err?.message || 'Tệp không đúng định dạng JSON'}` };
+  }
+}
+
+// Theme storage
+export type AppTheme = 'dark' | 'light';
+export const THEME_KEY = 'alice_app_theme';
+
+export function loadAppTheme(): AppTheme {
+  try {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === 'light' || saved === 'dark') return saved;
+    return 'dark'; // Default dark mode for modern AI workspace
+  } catch {
+    return 'dark';
+  }
+}
+
+export function saveAppTheme(theme: AppTheme): void {
+  try {
+    localStorage.setItem(THEME_KEY, theme);
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  } catch (err) {
+    console.error('Lỗi khi lưu theme:', err);
   }
 }
 

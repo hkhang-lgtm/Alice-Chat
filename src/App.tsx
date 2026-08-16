@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AISettings, ChatSession, ChatMessage } from './types';
+import { AISettings, ChatSession, ChatMessage, MessageAttachment } from './types';
 import {
   loadSettings,
   saveSettings,
@@ -11,12 +11,16 @@ import {
   exportHistoryToJSON,
   importHistoryFromJSON,
   exportSingleSessionMarkdown,
+  loadAppTheme,
+  saveAppTheme,
+  AppTheme,
 } from './services/storage';
 import { Sidebar } from './components/Sidebar';
 import { ChatWindow } from './components/ChatWindow';
 import { SettingsModal } from './components/SettingsModal';
 
 export default function App() {
+  const [theme, setTheme] = useState<AppTheme>(() => loadAppTheme());
   const [settings, setSettings] = useState<AISettings>(() => loadSettings());
   const [sessions, setSessions] = useState<ChatSession[]>(() => loadSessions());
   const [activeSessionId, setActiveSessionId] = useState<string>(() => {
@@ -34,6 +38,15 @@ export default function App() {
   const [pendingRegenerate, setPendingRegenerate] = useState(false);
 
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Sync theme to DOM & localStorage
+  useEffect(() => {
+    saveAppTheme(theme);
+  }, [theme]);
+
+  const handleToggleTheme = () => {
+    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  };
 
   // Sync settings and sessions to localStorage
   useEffect(() => {
@@ -146,17 +159,22 @@ export default function App() {
   };
 
   // Send message to Alice
-  const handleSendMessage = async (userContent: string, isRegenerate = false) => {
+  const handleSendMessage = async (
+    userContent: string,
+    isRegenerate = false,
+    attachments?: MessageAttachment[]
+  ) => {
     if (isGenerating) return;
 
     let updatedSession = { ...activeSession };
     const now = Date.now();
 
-    if (!isRegenerate && userContent) {
+    if (!isRegenerate && (userContent || (attachments && attachments.length > 0))) {
       const userMessage: ChatMessage = {
         id: `msg_user_${now}`,
         role: 'user',
         content: userContent,
+        attachments: attachments && attachments.length > 0 ? attachments : undefined,
         timestamp: now,
       };
 
@@ -166,7 +184,8 @@ export default function App() {
         updatedSession.title === 'Cuộc trò chuyện mới' &&
         updatedSession.messages.filter((m) => m.role === 'user').length === 0
       ) {
-        newTitle = userContent.slice(0, 30) + (userContent.length > 30 ? '...' : '');
+        const titleSource = userContent || (attachments?.[0]?.name ? `File: ${attachments[0].name}` : 'Hình ảnh');
+        newTitle = titleSource.slice(0, 30) + (titleSource.length > 30 ? '...' : '');
       }
 
       updatedSession = {
@@ -205,13 +224,17 @@ export default function App() {
     abortControllerRef.current = new AbortController();
 
     try {
-      // Send chat history payload to backend /api/chat/stream
+      // Send chat history payload with attachments to backend /api/chat/stream
       const response = await fetch('/api/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: abortControllerRef.current.signal,
         body: JSON.stringify({
-          messages: updatedSession.messages.map((m) => ({ role: m.role, content: m.content })),
+          messages: updatedSession.messages.map((m) => ({
+            role: m.role,
+            content: m.content,
+            attachments: m.attachments,
+          })),
           systemPrompt: settings.systemPrompt,
           contextSize: settings.contextSize,
           temperature: settings.temperature,
@@ -419,7 +442,7 @@ export default function App() {
   const totalMessageCount = sessions.reduce((acc, s) => acc + s.messages.length, 0);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-zinc-950 font-sans text-zinc-100 antialiased selection:bg-amber-500/30 selection:text-amber-200">
+    <div className="flex h-screen w-screen overflow-hidden bg-zinc-50 dark:bg-zinc-950 font-sans text-zinc-900 dark:text-zinc-100 antialiased selection:bg-amber-500/30 selection:text-amber-600 dark:selection:text-amber-200 transition-colors duration-200">
       {/* Sidebar Drawer */}
       <Sidebar
         isOpen={isMobileSidebarOpen}
@@ -436,12 +459,14 @@ export default function App() {
         onExportJSON={handleExportJSON}
         onImportJSON={handleImportJSON}
         settings={settings}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
       />
 
       {/* Main Chat Workspace */}
       <ChatWindow
         session={activeSession}
-        onSendMessage={(text) => handleSendMessage(text)}
+        onSendMessage={(text, attachments) => handleSendMessage(text, false, attachments)}
         onRegenerate={handleRegenerate}
         onDeleteMessage={handleDeleteMessage}
         onEditMessage={handleEditMessage}
@@ -452,6 +477,8 @@ export default function App() {
         onNewSession={handleNewSession}
         onExportMarkdown={() => exportSingleSessionMarkdown(activeSession)}
         settings={settings}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
       />
 
       {/* System Settings Modal */}
@@ -465,6 +492,8 @@ export default function App() {
         onClearAllHistory={handleClearAllHistory}
         sessionCount={sessions.length}
         messageCount={totalMessageCount}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
       />
     </div>
   );

@@ -6,23 +6,28 @@ import {
   Plus,
   Menu,
   Sparkles,
-  Bot,
   Download,
   Mic,
   MicOff,
   Code,
   BookOpen,
   Lightbulb,
-  MessageCircle,
-  AlertCircle,
+  Paperclip,
+  Image as ImageIcon,
+  X,
+  FileText,
+  Sun,
+  Moon,
+  UploadCloud,
 } from 'lucide-react';
-import { ChatSession, AISettings, ChatMessage } from '../types';
+import { ChatSession, AISettings, MessageAttachment } from '../types';
+import { AppTheme } from '../services/storage';
 import { ChatMessageItem } from './ChatMessageItem';
 import { AliceAvatar } from './AliceAvatar';
 
 interface ChatWindowProps {
   session: ChatSession;
-  onSendMessage: (content: string) => void;
+  onSendMessage: (content: string, attachments?: MessageAttachment[]) => void;
   onRegenerate: () => void;
   onDeleteMessage: (messageId: string) => void;
   onEditMessage: (messageId: string, newContent: string) => void;
@@ -33,6 +38,8 @@ interface ChatWindowProps {
   onNewSession: () => void;
   onExportMarkdown: () => void;
   settings: AISettings;
+  theme?: AppTheme;
+  onToggleTheme?: () => void;
 }
 
 const STARTER_PROMPTS = [
@@ -71,11 +78,19 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   onNewSession,
   onExportMarkdown,
   settings,
+  theme = 'dark',
+  onToggleTheme,
 }) => {
   const [inputText, setInputText] = useState('');
   const [isListening, setIsListening] = useState(false);
+  const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const dragCounterRef = useRef(0);
 
   // Auto scroll to bottom when messages change
   const scrollToBottom = () => {
@@ -94,10 +109,164 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     }
   }, [inputText]);
 
+  // Process uploaded files into MessageAttachment objects
+  const processFiles = async (files: FileList | File[]) => {
+    const newAttachments: MessageAttachment[] = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (!file) continue;
+
+      // Limit file size to 20MB
+      if (file.size > 20 * 1024 * 1024) {
+        alert(`Tệp "${file.name}" vượt quá giới hạn 20MB.`);
+        continue;
+      }
+
+      const isImg = file.type.startsWith('image/');
+      const isTextFile =
+        file.type.startsWith('text/') ||
+        file.type.includes('json') ||
+        file.type.includes('javascript') ||
+        file.type.includes('typescript') ||
+        file.type.includes('xml') ||
+        /\.(txt|md|js|ts|tsx|jsx|py|html|css|json|csv|yaml|yml|sql|sh|c|cpp|h|java|rs|go|php|rb)$/i.test(file.name);
+
+      const attachmentId = `att_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+      try {
+        if (isTextFile && !isImg) {
+          // Read as text
+          const textContent = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve((e.target?.result as string) || '');
+            reader.onerror = reject;
+            reader.readAsText(file);
+          });
+
+          // Also get dataUrl
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve((e.target?.result as string) || '');
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+
+          newAttachments.push({
+            id: attachmentId,
+            name: file.name,
+            type: file.type || 'text/plain',
+            size: file.size,
+            dataUrl,
+            isImage: false,
+            textContent,
+          });
+        } else {
+          // Read as DataURL (image or binary)
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve((e.target?.result as string) || '');
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+
+          newAttachments.push({
+            id: attachmentId,
+            name: file.name,
+            type: file.type || (isImg ? 'image/jpeg' : 'application/octet-stream'),
+            size: file.size,
+            dataUrl,
+            isImage: isImg,
+          });
+        }
+      } catch (err) {
+        console.error('Lỗi khi đọc file:', file.name, err);
+      }
+    }
+
+    if (newAttachments.length > 0) {
+      setAttachments((prev) => [...prev, ...newAttachments]);
+    }
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      processFiles(e.target.files);
+      e.target.value = '';
+    }
+  };
+
+  const handleRemoveAttachment = (id: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  const handleClearAllAttachments = () => {
+    setAttachments([]);
+  };
+
+  // Drag and Drop handlers
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current += 1;
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setIsDragging(true);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current <= 0) {
+      setIsDragging(false);
+      dragCounterRef.current = 0;
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    dragCounterRef.current = 0;
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      processFiles(e.dataTransfer.files);
+    }
+  };
+
+  // Paste handler for clipboard images & files
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData.items;
+    const pastedFiles: File[] = [];
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.kind === 'file') {
+        const file = item.getAsFile();
+        if (file) {
+          pastedFiles.push(file);
+        }
+      }
+    }
+
+    if (pastedFiles.length > 0) {
+      processFiles(pastedFiles);
+    }
+  };
+
   const handleSend = () => {
-    if (!inputText.trim() || isGenerating) return;
-    onSendMessage(inputText.trim());
+    const textToSend = inputText.trim();
+    if ((!textToSend && attachments.length === 0) || isGenerating) return;
+
+    onSendMessage(textToSend, attachments.length > 0 ? attachments : undefined);
     setInputText('');
+    setAttachments([]);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
@@ -144,10 +313,54 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     }
   };
 
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
   return (
-    <div className="flex-1 flex flex-col h-full bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 overflow-hidden relative">
+    <div
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+      className="flex-1 flex flex-col h-full bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 overflow-hidden relative transition-colors duration-200"
+    >
+      {/* Hidden File Inputs */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileInputChange}
+        multiple
+        className="hidden"
+      />
+      <input
+        type="file"
+        ref={imageInputRef}
+        onChange={handleFileInputChange}
+        accept="image/*"
+        multiple
+        className="hidden"
+      />
+
+      {/* Drag & Drop Visual Overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 z-50 bg-amber-500/10 dark:bg-amber-500/15 backdrop-blur-xs border-2 border-dashed border-amber-500 rounded-2xl m-3 flex flex-col items-center justify-center gap-3 pointer-events-none transition-all animate-fadeIn">
+          <div className="p-4 rounded-3xl bg-white dark:bg-zinc-900 shadow-2xl text-amber-500 dark:text-amber-400 border border-amber-200 dark:border-amber-900/50 scale-110">
+            <UploadCloud className="w-10 h-10 animate-bounce" />
+          </div>
+          <p className="text-base font-bold text-zinc-900 dark:text-zinc-100">
+            Thả ảnh hoặc tệp vào đây để gửi cho Alice
+          </p>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            Hỗ trợ hình ảnh (PNG, JPG, WebP...) và các tệp văn bản/code (TXT, MD, JS, TS, JSON, Python...)
+          </p>
+        </div>
+      )}
+
       {/* Top Header */}
-      <header className="h-16 px-4 md:px-6 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between bg-white/80 dark:bg-zinc-950/80 backdrop-blur-md sticky top-0 z-20">
+      <header className="h-16 px-4 md:px-6 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between bg-white/80 dark:bg-zinc-950/80 backdrop-blur-md sticky top-0 z-20 transition-colors">
         <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={onOpenMobileSidebar}
@@ -169,7 +382,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                 <span>{settings.model || 'gemini-3.6-flash'}</span>
               </span>
             </div>
-            <p className="text-[11px] text-zinc-500 truncate">
+            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 truncate">
               {isGenerating ? 'Alice đang suy nghĩ và gõ phản hồi...' : 'Trực tuyến • Sẵn sàng hỗ trợ'}
             </p>
           </div>
@@ -177,6 +390,22 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
 
         {/* Action Header Buttons */}
         <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Theme Toggle Button */}
+          {onToggleTheme && (
+            <button
+              onClick={onToggleTheme}
+              className="p-2 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 transition-colors"
+              title={theme === 'dark' ? 'Chuyển sang Chế độ Sáng (Light Mode)' : 'Chuyển sang Chế độ Tối (Dark Mode)'}
+            >
+              {theme === 'dark' ? (
+                <Sun className="w-4 h-4 text-amber-400 hover:rotate-45 transition-transform" />
+              ) : (
+                <Moon className="w-4 h-4 text-indigo-600 hover:-rotate-12 transition-transform" />
+              )}
+            </button>
+          )}
+
+          {/* Export Markdown */}
           <button
             onClick={onExportMarkdown}
             className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-medium transition-colors text-zinc-700 dark:text-zinc-300"
@@ -186,6 +415,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             <span>Xuất .MD</span>
           </button>
 
+          {/* New Chat Session */}
           <button
             onClick={onNewSession}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-medium text-xs transition-colors shadow-xs"
@@ -195,6 +425,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             <span className="hidden sm:inline">Trò chuyện mới</span>
           </button>
 
+          {/* Settings Button */}
           <button
             onClick={onOpenSettings}
             className="p-2 rounded-xl text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors relative"
@@ -218,7 +449,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                   Chào mừng bạn đến với Alice Workplace
                 </h3>
                 <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-1 max-w-lg mx-auto">
-                  Alice là trợ lý AI thông minh cá nhân hóa. Hãy tùy chỉnh thông số AI, Proxy Models & gửi câu hỏi bất kỳ!
+                  Alice là trợ lý AI thông minh cá nhân hóa. Hãy gửi câu hỏi, đính kèm ảnh/file để Alice phân tích nhé!
                 </p>
               </div>
             </div>
@@ -243,7 +474,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                         </div>
                         <span className="font-bold text-xs text-zinc-800 dark:text-zinc-200">{item.title}</span>
                       </div>
-                      <p className="text-xs text-zinc-500 line-clamp-2">{item.prompt}</p>
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400 line-clamp-2">{item.prompt}</p>
                     </button>
                   );
                 })}
@@ -283,7 +514,70 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
       {/* Input Bar Footer */}
       <div className="p-4 border-t border-zinc-200 dark:border-zinc-800 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-md sticky bottom-0 z-10">
         <div className="max-w-4xl mx-auto space-y-2">
-          <div className="relative flex items-end gap-2 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-2 focus-within:ring-2 focus-within:ring-amber-500/50 transition-all">
+          {/* Attachments Preview Bar */}
+          {attachments.length > 0 && (
+            <div className="p-2.5 rounded-2xl bg-zinc-100/90 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-2 overflow-x-auto">
+              <div className="flex items-center gap-2 flex-wrap">
+                {attachments.map((att) => (
+                  <div
+                    key={att.id}
+                    className="flex items-center gap-2 p-1.5 pr-2 rounded-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-800 dark:text-zinc-200 shadow-2xs group"
+                  >
+                    {att.isImage ? (
+                      <img
+                        src={att.dataUrl}
+                        alt={att.name}
+                        className="w-7 h-7 rounded-lg object-cover border border-zinc-200 dark:border-zinc-600"
+                      />
+                    ) : (
+                      <div className="w-7 h-7 rounded-lg bg-amber-100 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                        <FileText className="w-3.5 h-3.5" />
+                      </div>
+                    )}
+                    <div className="max-w-[140px] truncate">
+                      <p className="font-medium truncate text-[11px]">{att.name}</p>
+                      <p className="text-[10px] text-zinc-400">{formatFileSize(att.size)}</p>
+                    </div>
+                    <button
+                      onClick={() => handleRemoveAttachment(att.id)}
+                      className="p-1 rounded-md text-zinc-400 hover:text-rose-500 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
+                      title="Gỡ tệp này"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                onClick={handleClearAllAttachments}
+                className="text-[11px] text-zinc-400 hover:text-rose-500 px-2 py-1 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 whitespace-nowrap transition-colors"
+              >
+                Xóa tất cả ({attachments.length})
+              </button>
+            </div>
+          )}
+
+          {/* Main Input Box */}
+          <div className="relative flex items-end gap-1.5 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-2 focus-within:ring-2 focus-within:ring-amber-500/50 transition-all">
+            {/* Attach Image Button */}
+            <button
+              onClick={() => imageInputRef.current?.click()}
+              className="p-2.5 rounded-xl text-zinc-400 hover:text-amber-500 hover:bg-zinc-200/60 dark:hover:bg-zinc-800 transition-colors"
+              title="Đính kèm hình ảnh (PNG, JPG, WebP...)"
+            >
+              <ImageIcon className="w-4 h-4" />
+            </button>
+
+            {/* Attach File Button */}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="p-2.5 rounded-xl text-zinc-400 hover:text-amber-500 hover:bg-zinc-200/60 dark:hover:bg-zinc-800 transition-colors"
+              title="Đính kèm tệp văn bản, code hoặc tài liệu (TXT, MD, JS, JSON...)"
+            >
+              <Paperclip className="w-4 h-4" />
+            </button>
+
             {/* Mic Speech Button */}
             <button
               onClick={handleToggleMic}
@@ -303,7 +597,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Nhắn tin cho Alice... (Nhấn Enter để gửi, Shift+Enter xuống dòng)"
+              onPaste={handlePaste}
+              placeholder={
+                attachments.length > 0
+                  ? 'Nhập mô tả hoặc câu hỏi về tệp đính kèm...'
+                  : 'Nhắn tin cho Alice, kéo thả ảnh/tệp hoặc dán (Ctrl+V)...'
+              }
               rows={1}
               className="flex-1 bg-transparent border-0 focus:outline-none focus:ring-0 text-xs sm:text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 resize-none max-h-44 py-1.5"
             />
@@ -320,7 +619,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             ) : (
               <button
                 onClick={handleSend}
-                disabled={!inputText.trim()}
+                disabled={!inputText.trim() && attachments.length === 0}
                 className="p-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-40 text-white font-medium text-xs flex items-center justify-center transition-all shadow-xs"
                 title="Gửi tin nhắn"
               >
@@ -332,11 +631,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
           {/* Sub-bar stats */}
           <div className="flex items-center justify-between text-[11px] text-zinc-400 px-2">
             <div className="flex items-center gap-3">
-              <span>Context: {settings.contextSize} msgs</span>
+              <span>Context: {settings.contextSize} tokens</span>
               <span>•</span>
               <span>Temp: {settings.temperature}</span>
             </div>
-            <span>Alice Bot v1.0 • Shift + Enter xuống dòng</span>
+            <span>Alice Bot v1.0 • Kéo thả hoặc dán ảnh/file • Shift + Enter xuống dòng</span>
           </div>
         </div>
       </div>

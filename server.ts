@@ -151,21 +151,92 @@ app.post('/api/chat/stream', async (req, res) => {
     // Filter system message if present, or extract system instruction
     let finalSystemInstruction = systemPrompt || 'Bạn là Alice, một trợ lý AI thông minh, dịu dàng và cực kỳ sắc bén.';
 
-    // Construct Gemini chat contents
-    const contentsHistory = processedMessages.map((msg: any) => ({
-      role: msg.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: msg.content }],
-    }));
+    // Construct Gemini chat contents with multimodal support (images & text files)
+    const contentsHistory = processedMessages.map((msg: any) => {
+      const parts: any[] = [];
+
+      // 1. Process attachments if present
+      if (Array.isArray(msg.attachments) && msg.attachments.length > 0) {
+        for (const att of msg.attachments) {
+          if (att.isImage || (att.type && att.type.startsWith('image/'))) {
+            // Extract base64 payload from dataUrl
+            let base64Data = att.dataUrl || '';
+            const commaIndex = base64Data.indexOf(',');
+            if (commaIndex !== -1) {
+              base64Data = base64Data.slice(commaIndex + 1);
+            }
+            if (base64Data) {
+              parts.push({
+                inlineData: {
+                  mimeType: att.type || 'image/jpeg',
+                  data: base64Data,
+                },
+              });
+            }
+          } else if (att.textContent) {
+            // Text or code file attachment
+            const fileExt = att.name?.split('.').pop() || '';
+            parts.push({
+              text: `[Tệp đính kèm: ${att.name || 'file'}]\n\`\`\`${fileExt}\n${att.textContent}\n\`\`\``,
+            });
+          }
+        }
+      }
+
+      // 2. Process text content
+      if (msg.content && typeof msg.content === 'string') {
+        parts.push({ text: msg.content });
+      }
+
+      // Fallback if parts is empty
+      if (parts.length === 0) {
+        parts.push({ text: '' });
+      }
+
+      return {
+        role: msg.role === 'assistant' ? 'model' : 'user',
+        parts,
+      };
+    });
 
     // If custom proxy with OpenAI format is detected
     if (provider === 'proxy' && proxyUrl && (proxyUrl.includes('/v1') || proxyUrl.includes('openai'))) {
       try {
         const openAiMessages = [
           { role: 'system', content: finalSystemInstruction },
-          ...processedMessages.map((m: any) => ({
-            role: m.role === 'assistant' ? 'assistant' : 'user',
-            content: m.content,
-          })),
+          ...processedMessages.map((m: any) => {
+            const hasAttachments = Array.isArray(m.attachments) && m.attachments.length > 0;
+            if (!hasAttachments) {
+              return {
+                role: m.role === 'assistant' ? 'assistant' : 'user',
+                content: m.content || '',
+              };
+            }
+
+            // OpenAI Vision format
+            const contentItems: any[] = [];
+            for (const att of m.attachments) {
+              if (att.isImage || (att.type && att.type.startsWith('image/'))) {
+                contentItems.push({
+                  type: 'image_url',
+                  image_url: { url: att.dataUrl },
+                });
+              } else if (att.textContent) {
+                contentItems.push({
+                  type: 'text',
+                  text: `[Tệp đính kèm: ${att.name}]\n\`\`\`\n${att.textContent}\n\`\`\``,
+                });
+              }
+            }
+            if (m.content) {
+              contentItems.push({ type: 'text', text: m.content });
+            }
+
+            return {
+              role: m.role === 'assistant' ? 'assistant' : 'user',
+              content: contentItems,
+            };
+          }),
         ];
 
         const endpoint = proxyUrl.replace(/\/+$/, '') + '/chat/completions';

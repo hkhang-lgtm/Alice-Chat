@@ -1,5 +1,5 @@
 import React from 'react';
-import aliceAvatarImg from '../assets/images/alice_avatar_1786631465541.jpg';
+import aliceAvatarImg from '../assets/images/Alice avatar.png';
 
 interface AliceAvatarProps {
   size?: 'sm' | 'md' | 'lg' | 'xl';
